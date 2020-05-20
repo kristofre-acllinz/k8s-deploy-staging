@@ -1,4 +1,8 @@
 @Library('dynatrace@master') _
+@Library('keptn-library@2.0')
+import sh.keptn.Keptn
+def keptn = new sh.keptn.Keptn()
+
 
 def tagMatchRules = [
   [
@@ -25,6 +29,16 @@ pipeline {
     disableConcurrentBuilds()
   }
   stages {
+    stage ('Keptn Init') {
+            steps {
+                script {
+                    keptn.keptnInit project:"sockshop_qg", service:"carts", stage:"staging", monitoring:"dynatrace" , shipyard:'keptn/shipyard.yaml'
+                    keptn.keptnAddResources('keptn/sli.yml','dynatrace/sli.yaml')
+                    keptn.keptnAddResources('keptn/slo.yml','slo.yaml')
+                    keptn.keptnAddResources('keptn/dynatrace.conf.yaml','dynatrace/dynatrace.conf.yaml')
+                }
+            }
+        }
     stage('Update Deployment and Service specification') {
       steps {
         container('git') {
@@ -110,6 +124,9 @@ pipeline {
 
     stage('Run production ready e2e check in staging') {
       steps {
+        script {
+            env.testStartTime = java.time.LocalDateTime.now().toString()
+        }
         recordDynatraceSession (
           envId: 'Dynatrace Tenant',
           testCase: 'loadtest',
@@ -146,6 +163,18 @@ pipeline {
         )
       }
     }
-    
+    stage('Keptn Evaluation') {
+        steps {
+            script {
+                def keptnContext = keptn.sendStartEvaluationEvent starttime:"${env.testStartTime}", endtime:"" 
+                echo keptnContext
+                result = keptn.waitForEvaluationDoneEvent setBuildResult:true, waitTime:3
+
+                res_file = readJSON file: "keptn.evaluationresult.${keptnContext}.json"
+
+                echo res_file.toString();
+            }
+        }
+    }
   }
 }
